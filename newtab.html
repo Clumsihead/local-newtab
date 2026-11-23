@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New Tab</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Cinzel:wght@600;700&family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600;1,700&family=IM+Fell+English&family=Special+Elite&family=Caveat:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="newtab.css">
+</head>
+<body>
+<div id="bg"></div>
+<div id="shade"></div>
+
+<header class="topbar">
+  <div id="weather" class="weather" hidden></div>
+  <button class="logo" id="logo" title="Library" aria-label="Open library">
+    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M5 7.6C5 5.4 6.8 3.5 9 3.5h6c2.2 0 4 1.9 4 4.1V19.6c0 1-.9 1.5-1.7.9L12 16.6 6.7 20.5C5.9 21.1 5 20.6 5 19.6z"/></svg>
+  </button>
+</header>
+
+<main class="center">
+  <section id="clock">
+    <h1 id="greeting"></h1>
+    <p id="date"></p>
+  </section>
+
+  <div class="search-wrap">
+    <div class="search" id="searchBox">
+      <input id="search" type="text" placeholder="Search your library or the web…" autocomplete="off" spellcheck="false">
+      <kbd id="kbd">Ctrl K</kbd>
+    </div>
+    <div id="suggest" class="suggest" hidden></div>
+  </div>
+
+  <section class="library" id="library">
+    <div class="lib-head">
+      <h2>Your library</h2>
+      <div class="lib-tools">
+        <div class="shelf-nav">
+          <button id="shelfPrev" class="sn-arrow" aria-label="Previous shelf" title="Previous shelf"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+          <button id="shelfName" class="sn-name" title="Rename or delete this shelf"></button>
+          <span id="shelfCount" class="sn-count"></span>
+          <button id="shelfNext" class="sn-arrow" aria-label="Next shelf" title="Next shelf"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+          <div class="shelf-menu" id="shelfMenu" hidden><button data-a="rename">Rename shelf</button><button data-a="del">Delete shelf</button></div>
+        </div>
+        <button id="shelfAdd" class="lib-add">+ Shelf</button>
+        <button id="newBook" class="lib-add">+ New book</button>
+      </div>
+    </div>
+    <div class="shelf"><div class="shelf-stage" id="shelfStage"></div></div>
+  </section>
+
+  <figure class="quote" id="quote" hidden>
+    <blockquote id="qText"></blockquote>
+    <figcaption><span id="qAuthor"></span>
+      <button id="qNew" class="q-new" title="New quote" aria-label="New quote"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+      <a id="qCredit" class="q-credit" href="https://zenquotes.io/" target="_blank" rel="noopener" hidden>ZenQuotes</a></figcaption>
+  </figure>
+</main>
+
+<div id="stickyLayer"></div>
+
+<nav class="dock" id="dock">
+  <div class="sc-tray" id="scTray" aria-hidden="true"><div class="sc-tray-in" id="scTrayIn"></div></div>
+  <button data-app="shortcuts" class="d-links" title="Shortcuts"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg></button>
+  <button data-app="notes" class="d-notes" title="Notes"><svg viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7z M15 3v4h4 M10 12h6 M10 16h6"/></svg></button>
+  <button data-app="todos" class="d-todos" title="To-dos"><svg viewBox="0 0 24 24"><path d="M3 6l1.5 1.5L7 5 M3 12l1.5 1.5L7 11 M3 18l1.5 1.5L7 17 M10 6.5h11 M10 12.5h11 M10 18.5h11"/></svg></button>
+  <button data-app="stickies" class="d-stick" title="Stickies"><svg viewBox="0 0 24 24"><path d="M5 4h14v10l-6 6H5z M13 20v-6h6"/></svg></button>
+  <span class="sep"></span>
+  <button data-app="settings" class="d-set" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  <i class="dot" id="dockDot"></i>
+</nav>
+
+<footer class="bottombar">
+  <span id="credit" class="credit"></span>
+  <span class="spacer"></span>
+  <span id="tabCount" class="tabcount"></span>
+  <button id="saveClose" class="save">Save &amp; close</button>
+  <button id="sessionsBtn" class="link-btn">Sessions</button>
+</footer>
+
+<div id="modalHost"></div>
+<div id="tourHost"></div>
+<div id="toast" class="toast" hidden></div>
+<script src="newtab.js"></script>
+</body>
+</html>

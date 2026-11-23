@@ -12,7 +12,7 @@ const favicon = u => `https://www.google.com/s2/favicons?sz=64&domain=${encodeUR
 const DEFAULTS = {
   theme: "auto", clock: true,
   bg: { type: "gradient", value: "g0" }, wp: { rotate: false, order: "random", index: -1, lastId: null }, shadeTop: 42, shadeBottom: 23,
-  unsplash: { on: false, key: "", username: "photoholgic", photos: null, fetched: 0, lastId: null },
+  unsplash: { on: false, key: "", sources: ["photoholgic"], lists: {}, lastId: null },
   weather: { on: false, name: "", lat: null, lon: null, unit: "C" },
   dock: true, toured: false, ui: 100,
   shortcuts: [], scSeeded: false, quoteOn: true, quote: null, nextQuote: null, books: [], shelves: [], curShelf: null, notes: [], todos: [], stickies: [], sessions: []
@@ -27,7 +27,8 @@ const store = {
     else saved = { localhome: JSON.parse(localStorage.getItem("localhome") || "null") };
     S = { ...structuredClone(DEFAULTS), ...(saved.localhome || saved.marqly || {}) };
     S.wp = { ...DEFAULTS.wp, ...(S.wp || {}) };
-    S.unsplash = { ...DEFAULTS.unsplash, ...(S.unsplash || {}) };
+    S.unsplash = { ...structuredClone(DEFAULTS.unsplash), ...(S.unsplash || {}) };
+    if (S.unsplash.photos) { S.unsplash.lists.photoholgic = { photos: S.unsplash.photos, t: S.unsplash.fetched || 0 }; delete S.unsplash.photos; delete S.unsplash.fetched; }
   },
   save() {
     if (hasChrome) chrome.storage.local.set({ localhome: S });
@@ -114,35 +115,50 @@ async function applyBg() {
 }
 /* ---- Unsplash: random photos from one photographer (hotlinked + credited, as the API guidelines ask) ---- */
 const UNS = { base: "https://api.unsplash.com", utm: "?utm_source=local_home&utm_medium=referral" };
+/* the photo pools you can switch on (any combination) */
+const UNS_SOURCES = [
+  { id: "photoholgic", label: "@photoholgic", sub: "The photographer's own photos", url: "https://unsplash.com/@photoholgic", path: "/users/photoholgic/photos?per_page=30&order_by=latest&orientation=landscape" },
+  { id: "landscape", label: "Landscape collection", sub: "Unsplash collection 11649432", url: "https://unsplash.com/collections/11649432/landscape", path: "/collections/11649432/photos?per_page=30&orientation=landscape" },
+  { id: "nature", label: "Nature landscapes", sub: "Search: “nature landscape”", url: "https://unsplash.com/wallpapers/nature/landscape", path: "/search/photos?query=nature%20landscape&orientation=landscape&per_page=30", results: true }
+];
 const uHeaders = () => ({ Authorization: `Client-ID ${S.unsplash.key}`, "Accept-Version": "v1" });
-async function unsplashFetchPhotos(pages = 3) {
+async function unsplashFetchSource(src, pages = 3) {
   const out = [];
   for (let pg = 1; pg <= pages; pg++) {
     const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 10000);
     let r;
-    try { r = await fetch(`${UNS.base}/users/${encodeURIComponent(S.unsplash.username)}/photos?per_page=30&page=${pg}&order_by=latest`, { headers: uHeaders(), signal: ctrl.signal }); }
+    try { r = await fetch(`${UNS.base}${src.path}&page=${pg}`, { headers: uHeaders(), signal: ctrl.signal }); }
     catch { if (out.length) break; throw new Error("Couldn't reach Unsplash. Check your connection."); }
     finally { clearTimeout(t); }
     if (!r.ok) {
       if (out.length) break;
-      throw new Error(r.status === 401 ? "Unsplash rejected that access key." : r.status === 403 ? "Unsplash rate limit reached. Try again in an hour." : r.status === 404 ? "That Unsplash user wasn't found." : `Unsplash error ${r.status}.`);
+      throw new Error(r.status === 401 ? "Unsplash rejected that access key." : r.status === 403 ? "Unsplash rate limit reached. Try again in an hour." : r.status === 404 ? `“${src.label}” wasn't found.` : `Unsplash error ${r.status}.`);
     }
-    const j = await r.json(); if (!Array.isArray(j) || !j.length) break;
-    j.forEach(p => out.push({ id: p.id, raw: p.urls?.raw, name: p.user?.name, userUrl: p.user?.links?.html, dl: p.links?.download_location, color: p.color }));
-    if (j.length < 30) break;
+    const j = await r.json(), arr = src.results ? j.results : j; if (!Array.isArray(arr) || !arr.length) break;
+    arr.forEach(p => { if (p.urls?.raw && (!p.width || !p.height || p.width > p.height)) out.push({ id: p.id, raw: p.urls.raw, name: p.user?.name, userUrl: p.user?.links?.html, dl: p.links?.download_location, color: p.color }); });
+    if (arr.length < 30) break;
   }
-  return out.filter(p => p.raw);
+  return out;
+}
+async function unsplashLoad(id) {
+  const src = UNS_SOURCES.find(s => s.id === id), list = await unsplashFetchSource(src);
+  if (!list.length) throw new Error(`“${src.label}” has no landscape photos.`);
+  S.unsplash.lists[id] = { photos: list, t: Date.now() }; store.save();
+  return list;
 }
 let uCur = null;
 async function unsplashPick() {
   if (uCur) return uCur;
   const u = S.unsplash;
-  if (!u.photos?.length || Date.now() - u.fetched > 864e5) {
-    try { const list = await unsplashFetchPhotos(); if (list.length) { u.photos = list; u.fetched = Date.now(); } }
-    catch { if (u.photos?.length) u.fetched = Date.now() - 864e5 + 6e5; }   // keep the old list, retry in 10 minutes
-  }
-  if (!u.photos?.length) return null;
-  const pool = u.photos.length > 1 ? u.photos.filter(p => p.id !== u.lastId) : u.photos;
+  await Promise.all(u.sources.map(async id => {
+    const l = u.lists[id];
+    if (l?.photos?.length && Date.now() - l.t < 864e5) return;
+    try { await unsplashLoad(id); } catch { if (l?.photos?.length) l.t = Date.now() - 864e5 + 6e5; }   // keep the old list, retry in 10 minutes
+  }));
+  const all = new Map();
+  u.sources.forEach(id => (u.lists[id]?.photos || []).forEach(p => all.set(p.id, p)));
+  const list = [...all.values()]; if (!list.length) return null;
+  const pool = list.length > 1 ? list.filter(p => p.id !== u.lastId) : list;
   uCur = pool[Math.floor(Math.random() * pool.length)]; u.lastId = uCur.id; store.save();
   if (uCur.dl) fetch(uCur.dl, { headers: uHeaders() }).catch(() => {});   // Unsplash asks apps to report each photo that is used
   return uCur;
@@ -155,7 +171,7 @@ async function showUnsplash(ph) {
   if (!ok) return false;
   $("#bg").style.background = `center/cover url("${url}")`;
   const a = (href, t) => `<a href="${esc(href)}${UNS.utm}" target="_blank" rel="noopener">${esc(t)}</a>`;
-  $("#credit").innerHTML = `Photo by ${a(ph.userUrl || "https://unsplash.com/@" + S.unsplash.username, ph.name || "Unsplash")} on ${a("https://unsplash.com/", "Unsplash")}`;
+  $("#credit").innerHTML = `Photo by ${a(ph.userUrl || "https://unsplash.com/", ph.name || "Unsplash")} on ${a("https://unsplash.com/", "Unsplash")}`;
   return true;
 }
 async function addWallpaperFiles(files) {
@@ -982,12 +998,13 @@ function Appearance(p, redraw) {
 }
 function Wallpaper(p, redraw) {
   const sw = Object.keys(GRADIENTS).map(k => `<button class="sw ${S.bg.type === "gradient" && S.bg.value === k && !S.wp.rotate ? "on" : ""}" data-k="${k}" style="background:${GRADIENTS[k]}" title="Color"></button>`).join("");
-  const un = S.unsplash;
+  const un = S.unsplash, cnt = id => un.lists[id]?.photos?.length ? ` · ${un.lists[id].photos.length} photos` : "";
   p.innerHTML = `
     <div class="unsplash-box">
-      <div class="s-row"><div><b>Unsplash wallpapers</b><small>A random photo by <a href="https://unsplash.com/@${esc(un.username)}${UNS.utm}" target="_blank" rel="noopener">@${esc(un.username)}</a>, a new one on every tab.</small></div>${toggle(un.on, "unSw")}</div>
+      <div class="s-row"><div><b>Unsplash wallpapers</b><small>A random landscape photo from the sources below, a new one on every tab.</small></div>${toggle(un.on, "unSw")}</div>
+      <div class="un-sources" id="unSources">${UNS_SOURCES.map(s => `<label class="un-src"><input type="checkbox" data-s="${s.id}" ${un.sources.includes(s.id) ? "checked" : ""}><span><b>${s.label}</b><small><a href="${s.url}${UNS.utm}" target="_blank" rel="noopener">${s.sub}</a>${cnt(s.id)}</small></span></label>`).join("")}</div>
       <div class="url-row"><input class="input" id="unKey" type="password" autocomplete="off" placeholder="Unsplash Access Key" value="${esc(un.key)}"><button class="btn primary" id="unSave">Save &amp; test</button></div>
-      <small class="muted" id="unMsg">Needs a free Access Key: <a href="https://unsplash.com/oauth/applications" target="_blank" rel="noopener">create an app</a> and paste its Access Key. It stays on this computer.${un.photos?.length ? ` ${un.photos.length} photos loaded.` : ""}</small>
+      <small class="muted" id="unMsg">Needs a free Access Key: <a href="https://unsplash.com/oauth/applications" target="_blank" rel="noopener">create an app</a> and paste its Access Key. It stays on this computer.</small>
     </div>
     <div class="s-row"><div><b>Change on every new tab</b><small>Cycle through the wallpapers you upload below.</small></div>${toggle(S.wp.rotate, "rotSw")}</div>
     <div class="s-row" style="${S.wp.rotate ? "" : "opacity:.5"}"><b>Order</b><div class="seg" id="ordSeg">
@@ -1029,22 +1046,33 @@ function Wallpaper(p, redraw) {
   };
   drawThumbs();
 
+  const hasPhotos = () => un.sources.some(id => un.lists[id]?.photos?.length);
   $("#unSw", p).onclick = () => {
     if (!un.on) {
-      if (!un.key || !un.photos?.length) return toast("Paste your Unsplash Access Key and press Save & test first");
+      if (!un.key || !hasPhotos()) return toast("Paste your Unsplash Access Key and press Save & test first");
       un.on = true; S.wp.rotate = false; uCur = null;
     } else un.on = false;
     store.save(); applyBg(); redraw();
   };
+  $$("#unSources input", p).forEach(cb => cb.onchange = async () => {
+    const id = cb.dataset.s, set = new Set(un.sources), msg = $("#unMsg", p);
+    if (cb.checked) set.add(id); else { if (set.size < 2) { cb.checked = true; return toast("Keep at least one source selected"); } set.delete(id); }
+    un.sources = [...set];
+    if (cb.checked && un.key && !un.lists[id]?.photos?.length) {
+      msg.textContent = "Loading…";
+      try { await unsplashLoad(id); }
+      catch (e) { un.sources = un.sources.filter(x => x !== id); cb.checked = false; msg.textContent = e.message; store.save(); return; }
+    }
+    uCur = null; store.save(); if (un.on) applyBg(); redraw();
+  });
   $("#unSave", p).onclick = async () => {
     const key = $("#unKey", p).value.trim(), msg = $("#unMsg", p); if (!key) return;
     const prev = un.key; un.key = key; msg.textContent = "Testing…";
-    try {
-      const list = await unsplashFetchPhotos();
-      if (!list.length) { msg.textContent = "Connected, but that account has no photos."; return; }
-      un.photos = list; un.fetched = Date.now(); un.on = true; S.wp.rotate = false; uCur = null; store.save();
-      toast(`Unsplash connected · ${list.length} photos`); applyBg(); redraw();
-    } catch (e) { un.key = prev; msg.textContent = e.message; }
+    const res = await Promise.allSettled(un.sources.map(unsplashLoad)), bad = res.filter(r => r.status === "rejected");
+    if (bad.length === res.length) { un.key = prev; msg.textContent = bad[0].reason.message; return; }
+    un.sources = un.sources.filter((_, i) => res[i].status === "fulfilled");
+    un.on = true; S.wp.rotate = false; uCur = null; store.save();
+    toast(bad.length ? `Connected, but ${bad.length} source${bad.length > 1 ? "s" : ""} failed: ${bad[0].reason.message}` : "Unsplash connected"); applyBg(); redraw();
   };
   $("#rotSw", p).onclick = async () => {
     const all = await wpAll();

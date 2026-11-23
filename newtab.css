@@ -457,3 +457,10 @@ html{font-family:"Google Sans","Google Sans Flex","Product Sans","Figtree","Sego
 .unsplash-box .s-row{margin-bottom:.4rem}
 .unsplash-box small a{color:inherit;text-decoration:underline}
 .unsplash-box .url-row{margin:.3rem 0 .6rem}
+
+.un-sources{display:flex;flex-direction:column;gap:.4rem;margin:.2rem 0 .8rem}
+.un-src{display:flex;align-items:flex-start;gap:.7rem;padding:.55rem .7rem;border-radius:.7rem;background:var(--modal);cursor:pointer}
+.un-src input{margin-top:.25rem;accent-color:#4c8dff;width:1rem;height:1rem}
+.un-src b{display:block;font-weight:600}
+.un-src small{color:var(--modal-dim)}
+.un-src small a{color:inherit}

@@ -450,3 +450,10 @@ html{font-family:"Google Sans","Google Sans Flex","Product Sans","Figtree","Sego
 .shelf-stage{position:relative;overflow:hidden;border-radius:.8rem;height:clamp(8.5rem,26vh,12rem)}
 .shelf-stage .shelf-scroll{position:absolute;inset:0;height:auto;transition:transform .45s cubic-bezier(.65,0,.25,1)}
 .bk-shelf{width:auto;margin:0 0 .9rem;padding:.55rem .9rem}
+
+/* unsplash */
+.credit a{text-decoration:none}.credit a:hover{text-decoration:underline}
+.unsplash-box{background:var(--modal-2);border-radius:1rem;padding:.6rem 1rem 1rem;margin-bottom:1.2rem}
+.unsplash-box .s-row{margin-bottom:.4rem}
+.unsplash-box small a{color:inherit;text-decoration:underline}
+.unsplash-box .url-row{margin:.3rem 0 .6rem}

@@ -12,6 +12,7 @@ const favicon = u => `https://www.google.com/s2/favicons?sz=64&domain=${encodeUR
 const DEFAULTS = {
   theme: "auto", clock: true,
   bg: { type: "gradient", value: "g0" }, wp: { rotate: false, order: "random", index: -1, lastId: null }, shadeTop: 42, shadeBottom: 23,
+  unsplash: { on: false, key: "", username: "photoholgic", photos: null, fetched: 0, lastId: null },
   weather: { on: false, name: "", lat: null, lon: null, unit: "C" },
   dock: true, toured: false, ui: 100,
   shortcuts: [], scSeeded: false, quoteOn: true, quote: null, nextQuote: null, books: [], shelves: [], curShelf: null, notes: [], todos: [], stickies: [], sessions: []
@@ -26,6 +27,7 @@ const store = {
     else saved = { localhome: JSON.parse(localStorage.getItem("localhome") || "null") };
     S = { ...structuredClone(DEFAULTS), ...(saved.localhome || saved.marqly || {}) };
     S.wp = { ...DEFAULTS.wp, ...(S.wp || {}) };
+    S.unsplash = { ...DEFAULTS.unsplash, ...(S.unsplash || {}) };
   },
   save() {
     if (hasChrome) chrome.storage.local.set({ localhome: S });
@@ -94,6 +96,7 @@ async function applyBg() {
   const bg = $("#bg"); $("#credit").textContent = "";
   document.documentElement.style.setProperty("--shade-top", S.shadeTop / 100);
   document.documentElement.style.setProperty("--shade-bot", S.shadeBottom / 100);
+  if (S.unsplash.on && S.unsplash.key) { const ph = await unsplashPick(); if (ph && await showUnsplash(ph)) return; $("#credit").textContent = ""; }
   let rec = null;
   try {
     if (S.wp.rotate && currentId) rec = await wpGet(currentId);
@@ -108,6 +111,52 @@ async function applyBg() {
   if (S.bg.type === "image" && S.bg.value) bg.style.background = `center/cover url("${S.bg.value.replace(/"/g, "%22")}")`;
   else if (S.bg.type === "none") bg.style.background = "#101012";
   else bg.style.background = GRADIENTS[S.bg.type === "gradient" ? S.bg.value : "g0"] || GRADIENTS.g0;
+}
+/* ---- Unsplash: random photos from one photographer (hotlinked + credited, as the API guidelines ask) ---- */
+const UNS = { base: "https://api.unsplash.com", utm: "?utm_source=local_home&utm_medium=referral" };
+const uHeaders = () => ({ Authorization: `Client-ID ${S.unsplash.key}`, "Accept-Version": "v1" });
+async function unsplashFetchPhotos(pages = 3) {
+  const out = [];
+  for (let pg = 1; pg <= pages; pg++) {
+    const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 10000);
+    let r;
+    try { r = await fetch(`${UNS.base}/users/${encodeURIComponent(S.unsplash.username)}/photos?per_page=30&page=${pg}&order_by=latest`, { headers: uHeaders(), signal: ctrl.signal }); }
+    catch { if (out.length) break; throw new Error("Couldn't reach Unsplash. Check your connection."); }
+    finally { clearTimeout(t); }
+    if (!r.ok) {
+      if (out.length) break;
+      throw new Error(r.status === 401 ? "Unsplash rejected that access key." : r.status === 403 ? "Unsplash rate limit reached. Try again in an hour." : r.status === 404 ? "That Unsplash user wasn't found." : `Unsplash error ${r.status}.`);
+    }
+    const j = await r.json(); if (!Array.isArray(j) || !j.length) break;
+    j.forEach(p => out.push({ id: p.id, raw: p.urls?.raw, name: p.user?.name, userUrl: p.user?.links?.html, dl: p.links?.download_location, color: p.color }));
+    if (j.length < 30) break;
+  }
+  return out.filter(p => p.raw);
+}
+let uCur = null;
+async function unsplashPick() {
+  if (uCur) return uCur;
+  const u = S.unsplash;
+  if (!u.photos?.length || Date.now() - u.fetched > 864e5) {
+    try { const list = await unsplashFetchPhotos(); if (list.length) { u.photos = list; u.fetched = Date.now(); } }
+    catch { if (u.photos?.length) u.fetched = Date.now() - 864e5 + 6e5; }   // keep the old list, retry in 10 minutes
+  }
+  if (!u.photos?.length) return null;
+  const pool = u.photos.length > 1 ? u.photos.filter(p => p.id !== u.lastId) : u.photos;
+  uCur = pool[Math.floor(Math.random() * pool.length)]; u.lastId = uCur.id; store.save();
+  if (uCur.dl) fetch(uCur.dl, { headers: uHeaders() }).catch(() => {});   // Unsplash asks apps to report each photo that is used
+  return uCur;
+}
+async function showUnsplash(ph) {
+  const w = Math.min(3840, Math.ceil(screen.width * (devicePixelRatio || 1) / 200) * 200) || 2560;
+  const url = `${ph.raw}${ph.raw.includes("?") ? "&" : "?"}w=${w}&q=80&fm=jpg&fit=max`;
+  $("#bg").style.background = ph.color || "#101012";
+  const ok = await new Promise(r => { const im = new Image(); im.onload = () => r(true); im.onerror = () => r(false); im.src = url; setTimeout(() => r(false), 8000); });
+  if (!ok) return false;
+  $("#bg").style.background = `center/cover url("${url}")`;
+  const a = (href, t) => `<a href="${esc(href)}${UNS.utm}" target="_blank" rel="noopener">${esc(t)}</a>`;
+  $("#credit").innerHTML = `Photo by ${a(ph.userUrl || "https://unsplash.com/@" + S.unsplash.username, ph.name || "Unsplash")} on ${a("https://unsplash.com/", "Unsplash")}`;
+  return true;
 }
 async function addWallpaperFiles(files) {
   let n = 0;
@@ -933,7 +982,13 @@ function Appearance(p, redraw) {
 }
 function Wallpaper(p, redraw) {
   const sw = Object.keys(GRADIENTS).map(k => `<button class="sw ${S.bg.type === "gradient" && S.bg.value === k && !S.wp.rotate ? "on" : ""}" data-k="${k}" style="background:${GRADIENTS[k]}" title="Color"></button>`).join("");
+  const un = S.unsplash;
   p.innerHTML = `
+    <div class="unsplash-box">
+      <div class="s-row"><div><b>Unsplash wallpapers</b><small>A random photo by <a href="https://unsplash.com/@${esc(un.username)}${UNS.utm}" target="_blank" rel="noopener">@${esc(un.username)}</a>, a new one on every tab.</small></div>${toggle(un.on, "unSw")}</div>
+      <div class="url-row"><input class="input" id="unKey" type="password" autocomplete="off" placeholder="Unsplash Access Key" value="${esc(un.key)}"><button class="btn primary" id="unSave">Save &amp; test</button></div>
+      <small class="muted" id="unMsg">Needs a free Access Key: <a href="https://unsplash.com/oauth/applications" target="_blank" rel="noopener">create an app</a> and paste its Access Key. It stays on this computer.${un.photos?.length ? ` ${un.photos.length} photos loaded.` : ""}</small>
+    </div>
     <div class="s-row"><div><b>Change on every new tab</b><small>Cycle through the wallpapers you upload below.</small></div>${toggle(S.wp.rotate, "rotSw")}</div>
     <div class="s-row" style="${S.wp.rotate ? "" : "opacity:.5"}"><b>Order</b><div class="seg" id="ordSeg">
       <button data-o="random" class="${S.wp.order === "random" ? "on" : ""}">Random</button>
@@ -967,17 +1022,34 @@ function Wallpaper(p, redraw) {
           if (currentId === r.id) await pickRotation();
           store.save(); applyBg(); drawThumbs(); return;
         }
-        S.wp.rotate = false; S.bg = { type: "library", id: r.id }; store.save(); applyBg(); redraw();
+        S.unsplash.on = false; S.wp.rotate = false; S.bg = { type: "library", id: r.id }; store.save(); applyBg(); redraw();
       };
       box.appendChild(d);
     });
   };
   drawThumbs();
 
+  $("#unSw", p).onclick = () => {
+    if (!un.on) {
+      if (!un.key || !un.photos?.length) return toast("Paste your Unsplash Access Key and press Save & test first");
+      un.on = true; S.wp.rotate = false; uCur = null;
+    } else un.on = false;
+    store.save(); applyBg(); redraw();
+  };
+  $("#unSave", p).onclick = async () => {
+    const key = $("#unKey", p).value.trim(), msg = $("#unMsg", p); if (!key) return;
+    const prev = un.key; un.key = key; msg.textContent = "Testing…";
+    try {
+      const list = await unsplashFetchPhotos();
+      if (!list.length) { msg.textContent = "Connected, but that account has no photos."; return; }
+      un.photos = list; un.fetched = Date.now(); un.on = true; S.wp.rotate = false; uCur = null; store.save();
+      toast(`Unsplash connected · ${list.length} photos`); applyBg(); redraw();
+    } catch (e) { un.key = prev; msg.textContent = e.message; }
+  };
   $("#rotSw", p).onclick = async () => {
     const all = await wpAll();
     if (!S.wp.rotate && !all.length) return toast("Upload at least one wallpaper first");
-    S.wp.rotate = !S.wp.rotate;
+    S.wp.rotate = !S.wp.rotate; if (S.wp.rotate) S.unsplash.on = false;
     if (S.wp.rotate && !currentId) await pickRotation();
     store.save(); applyBg(); redraw();
   };
@@ -990,8 +1062,8 @@ function Wallpaper(p, redraw) {
     if (S.wp.rotate && !currentId) { await pickRotation(); applyBg(); }
     drawThumbs();
   };
-  $$(".sw", p).forEach(b => b.onclick = () => { S.wp.rotate = false; S.bg = b.dataset.k === "none" ? { type: "none" } : { type: "gradient", value: b.dataset.k }; store.save(); applyBg(); redraw(); });
-  $("#setUrl", p).onclick = () => { const v = $("#imgUrl", p).value.trim(); if (!v) return; S.wp.rotate = false; S.bg = { type: "image", value: v }; store.save(); applyBg(); toast("Wallpaper set"); redraw(); };
+  $$(".sw", p).forEach(b => b.onclick = () => { S.unsplash.on = false; S.wp.rotate = false; S.bg = b.dataset.k === "none" ? { type: "none" } : { type: "gradient", value: b.dataset.k }; store.save(); applyBg(); redraw(); });
+  $("#setUrl", p).onclick = () => { const v = $("#imgUrl", p).value.trim(); if (!v) return; S.unsplash.on = false; S.wp.rotate = false; S.bg = { type: "image", value: v }; store.save(); applyBg(); toast("Wallpaper set"); redraw(); };
   $("#shadeHead", p).onclick = () => { const i = $("#shadeInner", p); i.hidden = !i.hidden; };
   const sh = () => { S.shadeTop = +$("#shTop", p).value; S.shadeBottom = +$("#shBot", p).value; applyBg(); store.save(); $("#shadeHead span:last-child", p).textContent = `Top ${S.shadeTop}% · Bottom ${S.shadeBottom}% ⌄`; };
   $("#shTop", p).oninput = sh; $("#shBot", p).oninput = sh;

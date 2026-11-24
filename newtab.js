@@ -487,16 +487,31 @@ const glyphHtml = k => {
   const grad = b.fg.startsWith("url") ? '<defs><linearGradient id="gmG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4285F4"/><stop offset=".55" stop-color="#9B72CB"/><stop offset="1" stop-color="#D96570"/></linearGradient></defs>' : "";
   return `<span class="brand" style="background:${b.bg};color:${b.fg}"><svg viewBox="0 0 24 24" aria-hidden="true">${grad}<path fill="${b.fg.startsWith("url") ? b.fg : "currentColor"}" d="${b.d}"/></svg></span>`;
 };
+/* Icon lookup for any address: bundled/CDN brand icon first, then a name guessed from the hostname
+   (github.com -> "github", docs.google.com -> "google-docs"), then the site's favicon, then a letter. */
+function iconNames(u) {
+  const h = host(u), brand = (BRAND_HOSTS.find(([re]) => re.test(h)) || [])[1];
+  if (brand) return { k: brand, list: BRAND_CAND[brand] };
+  const parts = h.split(".").filter(Boolean); if (parts.length < 2) return { k: "", list: [] };
+  const n = parts.length > 2 && ["co", "com", "org", "net", "gov", "ac"].includes(parts[parts.length - 2]) ? 3 : 2;
+  const sld = parts[parts.length - n], subs = parts.slice(0, parts.length - n).filter(x => x !== "www"), list = [];
+  if (subs.length) list.push(`${sld}-${subs[subs.length - 1]}`);
+  list.push(sld);
+  return { k: "", list: list.filter(x => /^[a-z0-9-]+$/.test(x)) };
+}
+const letterHtml = u => `<span class="brand" style="background:#3a3a40;color:#fff;font-size:1.3rem;font-weight:600">${esc((host(u)[0] || "•").toUpperCase())}</span>`;
 const scIconHtml = u => {
-  const h = host(u), k = (BRAND_HOSTS.find(([re]) => re.test(h)) || [])[1];
-  if (!k) return `<img src="${scIcon(u)}" alt="" draggable="false">`;
-  return `<img class="brandimg" data-k="${k}" data-c="0" src="${ICON_CDN}${BRAND_CAND[k][0]}.svg" alt="" draggable="false">`;
+  const { k, list } = iconNames(u);
+  if (!list.length) return `<img src="${scIcon(u)}" alt="" draggable="false" data-k="" data-u="${esc(u)}" data-l="" data-c="0" data-fb="1">`;
+  return `<img class="brandimg" data-k="${k}" data-l="${list.join(",")}" data-c="0" data-u="${esc(u)}" src="${ICON_CDN}${list[0]}.svg" alt="" draggable="false">`;
 };
 document.addEventListener("error", e => {
-  const i = e.target; if (!(i instanceof HTMLImageElement) || !i.dataset.k) return;
-  const list = BRAND_CAND[i.dataset.k], n = +i.dataset.c + 1;
-  if (n < list.length) { i.dataset.c = n; i.src = `${ICON_CDN}${list[n]}.svg`; }
-  else i.outerHTML = glyphHtml(i.dataset.k);
+  const i = e.target; if (!(i instanceof HTMLImageElement) || i.dataset.l === undefined || i.dataset.u === undefined) return;
+  const list = i.dataset.l ? i.dataset.l.split(",") : [], n = +i.dataset.c + 1;
+  if (!i.dataset.fb && n < list.length) { i.dataset.c = n; i.src = `${ICON_CDN}${list[n]}.svg`; return; }
+  if (!i.dataset.fb && i.dataset.k && BRANDS[i.dataset.k]) { i.outerHTML = glyphHtml(i.dataset.k); return; }
+  if (!i.dataset.fb) { i.dataset.fb = "1"; i.classList.remove("brandimg"); i.src = scIcon(i.dataset.u); return; }   // site favicon
+  i.outerHTML = letterHtml(i.dataset.u);
 }, true);
 /* tray that slides out of the dock, to the left of the shortcuts button */
 function renderTray() {
@@ -544,7 +559,7 @@ function openShortcutManager() {
     <div class="scg" id="scGrid"></div>
     <div class="sub-label" style="margin-top:1.4rem">Quick add</div><div class="presets" id="scPresets"></div>
     <div class="sub-label">Or add your own</div>
-    <div class="url-row"><input id="scTitle" class="input" placeholder="Name (optional)"><input id="scUrl" class="input" placeholder="https://example.com"><button class="btn primary" id="scSave">Add</button></div></div>`,
+    <div class="url-row"><span class="url-prev" id="scPrev" title="Icon preview"></span><input id="scTitle" class="input" placeholder="Name (optional)"><input id="scUrl" class="input" placeholder="https://example.com"><button class="btn primary" id="scSave">Add</button></div></div>`,
     mount(m) {
       const draw = () => {
         $("#scGrid", m).innerHTML = S.shortcuts.length ? S.shortcuts.map(s => `<a class="scg-item" href="${esc(s.url)}" title="${esc(s.url)}"><button class="x" data-id="${s.id}" title="Remove">✕</button>
@@ -560,10 +575,17 @@ function openShortcutManager() {
         let url = $("#scUrl", m).value.trim(); if (!url) return;
         if (!/^[a-z]+:\/\//i.test(url)) url = "https://" + url;
         S.shortcuts.push({ id: uid(), title: $("#scTitle", m).value.trim() || host(url), url });
-        $("#scTitle", m).value = $("#scUrl", m).value = ""; store.save(); draw(); renderTray();
+        $("#scTitle", m).value = $("#scUrl", m).value = ""; $("#scPrev", m).innerHTML = ""; store.save(); draw(); renderTray();
       };
       $("#scSave", m).onclick = add;
-      $("#scUrl", m).onkeydown = e => e.key === "Enter" && add();
+      $("#scUrl", m).onkeydown = e => { if (e.key === "Enter") add(); };
+      let pt = 0;
+      $("#scUrl", m).oninput = () => {   // show the icon we'd use as soon as the address looks complete
+        clearTimeout(pt); pt = setTimeout(() => {
+          let v = $("#scUrl", m).value.trim(); if (v && !/^[a-z]+:\/\//i.test(v)) v = "https://" + v;
+          $("#scPrev", m).innerHTML = /^https?:\/\/[^\s/]+\.[a-z]{2,}/i.test(v) ? scIconHtml(v) : "";
+        }, 250);
+      };
       draw();
     } });
 }
@@ -752,7 +774,7 @@ function openBook(id, fresh) {
         $("#bkUrl", m).value = ""; spine(); drawLinks();
       };
       $("#bkAddUrl", m).onclick = addUrl;
-      $("#bkUrl", m).onkeydown = e => e.key === "Enter" && addUrl();
+      $("#bkUrl", m).onkeydown = e => { if (e.key === "Enter") addUrl(); };
       $("#bkFile", m).onchange = async e => {
         const files = [...e.target.files]; if (!files.length) return;
         for (const f of files) {
@@ -846,7 +868,7 @@ function openTodos() {
       };
       const add = () => { const v = $("#todoIn", m).value.trim(); if (!v) return; S.todos.unshift({ id: uid(), text: v, done: false }); $("#todoIn", m).value = ""; store.save(); draw(); };
       $("#todoAdd", m).onclick = add;
-      $("#todoIn", m).onkeydown = e => e.key === "Enter" && add();
+      $("#todoIn", m).onkeydown = e => { if (e.key === "Enter") add(); };
       $$("#todoSeg button", m).forEach(b => b.onclick = () => { todoFilter = b.dataset.f; draw(); });
       $("#todoIn", m).focus(); draw();
     } });

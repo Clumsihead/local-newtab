@@ -464,3 +464,30 @@ html{font-family:"Google Sans","Google Sans Flex","Product Sans","Figtree","Sego
 .un-src b{display:block;font-weight:600}
 .un-src small{color:var(--modal-dim)}
 .un-src small a{color:inherit}
+
+/* keep the shelf from overlapping the quote at any zoom or window height:
+   the shelf takes whatever vertical room is left (rem units scale with the UI scale) */
+.shelf-stage{height:12rem}
+.library,.quote{flex:none}
+
+/* ===== adaptive layouts (chosen by fitLayout in newtab.js) ===== */
+html[data-lay="1"] .dock,html[data-lay="2"] .dock{left:1rem;bottom:auto;top:50%;transform:translateY(-50%);flex-direction:column;padding:.73rem}
+html[data-lay="1"] .dock .sep,html[data-lay="2"] .dock .sep{width:2.8rem;height:1px}
+html[data-lay="1"] .dock button:hover,html[data-lay="2"] .dock button:hover{transform:translateX(3px)}
+html[data-lay="1"] .dot,html[data-lay="2"] .dot{bottom:auto;left:.25rem}
+html[data-lay="1"] .center,html[data-lay="2"] .center{margin-top:0;padding:0 7rem 3.6rem}
+/* the shortcut tray opens to the right of a vertical dock */
+html[data-lay="1"] .sc-tray,html[data-lay="2"] .sc-tray{right:auto;left:calc(100% + .6rem);bottom:auto;align-items:flex-start;max-width:calc(100vw - 16rem)}
+html[data-lay="1"] .sc-tray-in,html[data-lay="2"] .sc-tray-in{transform:translateX(-3rem);clip-path:inset(0 100% 0 0 round 1.45rem)}
+html[data-lay="1"] .sc-tray.open .sc-tray-in,html[data-lay="2"] .sc-tray.open .sc-tray-in{transform:none;clip-path:inset(0 round 1.45rem)}
+/* level 2: quote moves into the top-left corner */
+html[data-lay="2"] .quote{position:fixed;top:1rem;left:7.5rem;margin:0;width:min(30rem,calc(50vw - 20rem));max-width:none;padding:.65rem 1.1rem .75rem;text-align:left;z-index:3}
+html[data-lay="2"] .quote blockquote{font-size:1.2rem;-webkit-line-clamp:3}
+html[data-lay="2"] .quote figcaption{justify-content:flex-start;margin-top:.3rem;font-size:.85rem}
+
+/* bookmarks: slide in from the right, slide out to the right */
+.lv{animation:lvIn .34s cubic-bezier(.2,.8,.2,1) both;box-shadow:-1.2rem 0 3rem rgba(0,0,0,.45)}
+.lv.out{animation:lvOut .28s cubic-bezier(.5,0,.8,.4) both}
+@keyframes lvIn{from{transform:translateX(100%)}to{transform:none}}
+@keyframes lvOut{from{transform:none}to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.lv,.lv.out{animation-duration:.01s}}

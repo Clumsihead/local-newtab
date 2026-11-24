@@ -230,7 +230,13 @@ async function loadLibrary() {
 
 /* ---------- in-page library view (masonry boards with page previews) ---------- */
 let libOv = null, libCleanup = null;
-function closeLibrary() { if (libCleanup) libCleanup(); libCleanup = null; if (libOv) { libOv.remove(); libOv = null; } }
+function closeLibrary() {
+  if (libCleanup) libCleanup(); libCleanup = null;
+  if (!libOv) return;
+  const ov = libOv; libOv = null;
+  ov.classList.add("out"); ov.style.pointerEvents = "none";   // slides back out to the right, then goes away
+  setTimeout(() => ov.remove(), 420);
+}
 
 /* preview images: read og:image from each page lazily, cache the result */
 let ogCache = null, ogTimer = null, ogActive = 0;
@@ -782,9 +788,7 @@ function openModal(title, o) {
   $(".m-close", m).onclick = closeModal;
   current = o.id;
   const btn = $(`#dock [data-app="${o.id}"]`);
-  const dot = $("#dockDot");
-  if (btn) { const dr = $("#dock").getBoundingClientRect(), br = btn.getBoundingClientRect(); dot.style.left = (br.left - dr.left + br.width / 2 - 2) + "px"; dot.classList.add("on"); }
-  else dot.classList.remove("on");
+  placeDot();
   o.mount && o.mount(m);
 }
 document.addEventListener("keydown", e => { if (e.key === "Escape") { if (libOv) closeLibrary(); else if (current) closeModal(); } });
@@ -1227,6 +1231,39 @@ async function loadQuote(force) {
 }
 $("#qNew").onclick = async () => { $("#qNew").classList.add("spin"); await loadQuote(true); $("#qNew").classList.remove("spin"); };
 
+/* ---------- adaptive layout: when the window is too short for the normal stack, change the layout instead of shrinking things ----------
+   level 0: dock along the bottom (normal)
+   level 1: dock moves to the left edge, standing vertically
+   level 2: dock stays left and the quote moves up into the top-left corner */
+function layoutFits() {
+  const c = $(".center"), cs = getComputedStyle(c);
+  const avail = c.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  let need = 0;
+  for (const el of c.children) {
+    const s = getComputedStyle(el); if (s.display === "none" || s.position === "fixed") continue;
+    need += el.offsetHeight + parseFloat(s.marginTop) + parseFloat(s.marginBottom);
+  }
+  return need <= avail + 1;
+}
+function placeDot() {
+  const dot = $("#dockDot"), btn = current && $(`#dock [data-app="${current}"]`);
+  if (!btn) return dot.classList.remove("on");
+  const dr = $("#dock").getBoundingClientRect(), br = btn.getBoundingClientRect(), vert = document.documentElement.dataset.lay !== "0";
+  if (vert) { dot.style.top = (br.top - dr.top + br.height / 2 - 2) + "px"; dot.style.left = ""; }
+  else { dot.style.left = (br.left - dr.left + br.width / 2 - 2) + "px"; dot.style.top = ""; }
+  dot.classList.add("on");
+}
+let fitQueued = false;
+function fitLayout() {
+  const root = document.documentElement;
+  for (const lvl of [0, 1, 2]) { root.dataset.lay = lvl; if (layoutFits()) break; }
+  placeDot();
+}
+const queueFit = () => { if (fitQueued) return; fitQueued = true; requestAnimationFrame(() => { fitQueued = false; fitLayout(); }); };
+addEventListener("resize", queueFit); document.addEventListener("fullscreenchange", queueFit);
+if (document.fonts) document.fonts.ready.then(queueFit);
+new MutationObserver(queueFit).observe($("#quote"), { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["hidden"] });
+
 /* ---------- fullscreen: nudge the content toward the centre ---------- */
 const isFs = () => !!document.fullscreenElement || matchMedia("(display-mode: fullscreen)").matches || (innerHeight >= screen.height - 2 && innerWidth >= screen.width - 2);
 const syncFs = () => { document.documentElement.toggleAttribute("data-fs", isFs()); };
@@ -1240,7 +1277,7 @@ addEventListener("resize", syncFs); document.addEventListener("fullscreenchange"
   applyBg();
   tick(); setInterval(tick, 15000);
   if (!S.scSeeded) { if (!S.shortcuts.length) S.shortcuts = PRESETS.map(p => ({ id: uid(), ...p })); S.scSeeded = true; store.save(); }
-  renderTray(); renderShelf(); renderStickies(); loadQuote();
+  renderTray(); renderShelf(); renderStickies(); loadQuote(); queueFit();
   loadLibrary(); loadWeather(); updateTabCount();
   if (hasChrome && chrome.tabs) { chrome.tabs.onCreated.addListener(updateTabCount); chrome.tabs.onRemoved.addListener(updateTabCount); }
   if (hasChrome && chrome.bookmarks) ["onCreated", "onRemoved", "onChanged"].forEach(ev => chrome.bookmarks[ev].addListener(loadLibrary));

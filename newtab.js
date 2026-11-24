@@ -214,17 +214,26 @@ function toast(msg) {
 }
 
 /* ---------- library (bookmarks) ---------- */
-let library = [];
+let library = [], libFolders = [];
 async function loadLibrary() {
-  if (!hasChrome || !chrome.bookmarks) {
-    library = [];
-  } else {
-    const tree = await chrome.bookmarks.getTree();
-    const out = [];
-    (function walk(n, parent) { if (n.url) out.push({ ...n, folder: parent }); (n.children || []).forEach(c => walk(c, n.title || parent)); })(tree[0], "");
-    out.sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0));
-    library = out;
-  }
+  if (!hasChrome || !chrome.bookmarks) { library = []; libFolders = []; return; }
+  const tree = await chrome.bookmarks.getTree();
+  const out = [], folders = [];
+  /* anc = ids of every folder above a bookmark, so picking a folder also shows everything in its sub-folders */
+  (function walk(n, parent, anc, path) {
+    if (n.url) { out.push({ ...n, folder: parent, anc }); return; }
+    let a = anc, p = path;
+    if (n.id !== "0") {
+      const name = n.title || "Untitled";
+      p = path ? `${path} › ${name}` : name;
+      folders.push({ id: n.id, title: name, path: p, count: 0 }); a = [...anc, n.id];
+    }
+    (n.children || []).forEach(c => walk(c, n.title || parent, a, p));
+  })(tree[0], "", [], "");
+  const byId = Object.fromEntries(folders.map(f => [f.id, f]));
+  out.forEach(b => b.anc.forEach(id => { if (byId[id]) byId[id].count++; }));
+  out.sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0));
+  library = out; libFolders = folders;
 }
 
 
@@ -322,18 +331,16 @@ function openLibrary() {
     viewBtn.title = viewBtn.ariaLabel = view === "tiles" ? "Switch to list view" : "Switch to tiled view";
   };
 
-  const counts = {};
-  library.forEach(b => { if (b.folder) counts[b.folder] = (counts[b.folder] || 0) + 1; });
-  const folders = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 8);
+  const folderById = Object.fromEntries(libFolders.map(f => [f.id, f]));
   const drawChips = () => {
     $(".lv-chips", ov).innerHTML =
       [["new", "Newest"], ["old", "Oldest"], ["az", "A–Z"]].map(([v, l]) => `<button class="lv-chip ${sort === v ? "on" : ""}" data-s="${v}">${l}</button>`).join("") +
-      (folders.length > 1 ? `<span class="lv-sep"></span><button class="lv-chip ${folder === "" ? "on" : ""}" data-f="">All</button>` +
-        folders.map(f => `<button class="lv-chip ${folder === f ? "on" : ""}" data-f="${esc(f)}">${esc(f)}</button>`).join("") : "");
+      (libFolders.length ? `<span class="lv-sep"></span><button class="lv-chip ${folder === "" ? "on" : ""}" data-f="">All</button>` +
+        libFolders.map(f => `<button class="lv-chip ${folder === f.id ? "on" : ""} ${f.count ? "" : "empty"}" data-f="${f.id}" title="${esc(f.path)}">${esc(f.title)} <em>${f.count}</em></button>`).join("") : "");
   };
   const rowsNow = () => {
     const s = q.toLowerCase();
-    let r = library.filter(b => (!folder || b.folder === folder) && (!s || (b.title + " " + b.url).toLowerCase().includes(s)));
+    let r = library.filter(b => (!folder || (b.anc || []).includes(folder)) && (!s || (b.title + " " + b.url).toLowerCase().includes(s)));
     if (sort === "old") r = r.slice().reverse();
     else if (sort === "az") r = r.slice().sort((a, b) => (a.title || a.url).localeCompare(b.title || b.url));
     return r;
@@ -378,11 +385,11 @@ function openLibrary() {
     if (io) io.disconnect();
     const rows = rowsNow();
     grid.classList.toggle("lv-listmode", view === "list");
-    title.textContent = folder || "All bookmarks";
+    title.textContent = folder ? (folderById[folder]?.title || "Folder") : "All bookmarks";
     sub.textContent = `${rows.length} item${rows.length === 1 ? "" : "s"}`;
     grid.innerHTML = "";
     more.hidden = rows.length <= limit;
-    if (!rows.length) { grid.innerHTML = `<div class="lv-empty">${library.length ? "Nothing matches that." : "No bookmarks yet."}</div>`; return; }
+    if (!rows.length) { grid.innerHTML = `<div class="lv-empty">${library.length ? (folder && !q ? "This folder is empty." : "Nothing matches that.") : "No bookmarks yet."}</div>`; return; }
     if (view === "list") {
       const wrap = document.createElement("div"); wrap.className = "lv-rows";
       rows.slice(0, limit).forEach(b => wrap.appendChild(makeRow(b)));
@@ -405,7 +412,7 @@ function openLibrary() {
       if (chip.dataset.s) sort = chip.dataset.s; else folder = chip.dataset.f;
       limit = 240; drawChips(); draw(); return;
     }
-    if (e.target.closest(".lv-more button")) { limit += 240; draw(); return; }
+    if (e.target.closest(".lv-more button")) { const st = ov.scrollTop; limit += 240; draw(); ov.scrollTop = st; return; }
     const a = e.target.closest("[data-a]")?.dataset.a; if (!a) return;
     if (a === "back") closeLibrary();
     else if (a === "view") { view = view === "tiles" ? "list" : "tiles"; try { localStorage.setItem("libView", view); } catch {} drawViewBtn(); draw(); }

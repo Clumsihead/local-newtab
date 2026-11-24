@@ -497,3 +497,8 @@ html[data-lay="2"] .quote figcaption{justify-content:flex-start;margin-top:.3rem
 .url-prev .brandimg{width:1.9rem!important;height:1.9rem!important}
 .url-prev img{width:1.7rem;height:1.7rem;border-radius:.3rem}
 .url-prev .brand{width:100%;height:100%}
+
+.lv-more[hidden]{display:none}
+.lv-chip em{font-style:normal;opacity:.55;margin-left:.2rem;font-size:.85em}
+.lv-chip.on em{opacity:.7}
+.lv-chip.empty{opacity:.55}
